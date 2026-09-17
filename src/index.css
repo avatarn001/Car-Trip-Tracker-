@@ -1,0 +1,28 @@
+@import "tailwindcss";
+
+/* Isolate Leaflet layers so they never overflow modals or app UI */
+.leaflet-container {
+  z-index: 1 !important;
+  font-family: inherit;
+}
+
+.leaflet-pane {
+  z-index: 2 !important;
+}
+
+.leaflet-top,
+.leaflet-bottom {
+  z-index: 5 !important;
+}
+
+@media print {
+  body {
+    background-color: #ffffff !important;
+    color: #000000 !important;
+  }
+  nav,
+  #global-toast-alert,
+  .print\:hidden {
+    display: none !important;
+  }
+}
