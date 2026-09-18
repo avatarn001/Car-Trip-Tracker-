@@ -2,7 +2,13 @@ import React, { useState, useEffect, useRef } from 'react';
 import { ActiveTripState, GpsPoint, Waypoint } from '../types';
 import { TripMap } from './TripMap';
 import { calculateTrackDistanceKm, simulateNextPosition, formatThaiDateTime, reverseGeocode } from '../services/geoService';
-import { Square, Activity, Gauge, MapPin, Clock, User, Compass, Zap, Pause, Play, Plus, Flag, Car, Check } from 'lucide-react';
+import { backgroundTracker } from '../services/backgroundTracker';
+import { realtimeService } from '../services/realtimeService';
+import { storage } from '../services/storage';
+import { 
+  Square, Activity, Gauge, MapPin, Clock, User, Compass, Zap, Pause, Play, Plus, Flag, Car, Check,
+  ShieldCheck, Volume2, Smartphone, Info, ChevronDown, ChevronUp, Radio, Battery, BatteryCharging, Leaf
+} from 'lucide-react';
 
 interface ActiveTripTrackerProps {
   activeTrip: ActiveTripState;
@@ -27,6 +33,7 @@ export const ActiveTripTracker: React.FC<ActiveTripTrackerProps> = ({
   const [currentSpeed, setCurrentSpeed] = useState<number>(0);
   const [isSimulating, setIsSimulating] = useState(false);
   const [isPaused, setIsPaused] = useState<boolean>(Boolean(activeTrip.isPaused));
+  const [currentAddress, setCurrentAddress] = useState<string>(activeTrip.startAddress || '');
   
   // Waypoint modal state
   const [showWaypointModal, setShowWaypointModal] = useState(false);
@@ -39,6 +46,7 @@ export const ActiveTripTracker: React.FC<ActiveTripTrackerProps> = ({
   const pointsRef = useRef<GpsPoint[]>(points);
   const onAddPointRef = useRef(onAddPoint);
   const isPausedRef = useRef(isPaused);
+  const lastRecordedGpsTsRef = useRef<number>(0);
 
   // Keep refs synchronized
   useEffect(() => {
@@ -52,6 +60,91 @@ export const ActiveTripTracker: React.FC<ActiveTripTrackerProps> = ({
   useEffect(() => {
     isPausedRef.current = isPaused;
   }, [isPaused]);
+
+  // Background tracking controls & state
+  const [isWakeLockActive, setIsWakeLockActive] = useState(true);
+  const [isBgAudioActive, setIsBgAudioActive] = useState(true);
+  const [showBgHelp, setShowBgHelp] = useState(false);
+
+  // Battery Saver Mode state
+  const [isBatterySaver, setIsBatterySaver] = useState<boolean>(() => storage.isPowerSavingMode());
+  const [gpsIntervalSec, setGpsIntervalSec] = useState<number>(() => storage.getGasConfig().gpsIntervalSeconds || 12);
+
+  // Sync with global config events
+  useEffect(() => {
+    const handleConfigChange = (e: any) => {
+      const cfg = e.detail;
+      if (cfg) {
+        const ps = Boolean(cfg.powerSavingMode);
+        const interval = cfg.gpsIntervalSeconds || (ps ? 12 : 4);
+        setIsBatterySaver(ps);
+        setGpsIntervalSec(interval);
+        backgroundTracker.setPowerSavingMode(ps, interval);
+      }
+    };
+    window.addEventListener('gas-config-changed', handleConfigChange);
+    return () => window.removeEventListener('gas-config-changed', handleConfigChange);
+  }, []);
+
+  // Helper to dispatch point to local app state and broadcast over WebSocket to connected admins
+  const handlePointArrival = (newPoint: GpsPoint) => {
+    onAddPointRef.current(newPoint);
+    if (activeTrip.tripId) {
+      realtimeService.broadcastTripPoint(
+        activeTrip.tripId, 
+        newPoint, 
+        currentAddress || activeTrip.startAddress
+      );
+    }
+  };
+
+  useEffect(() => {
+    // Notify server of active trip presence
+    realtimeService.broadcastTripStart(activeTrip);
+
+    // Start background services with current power saving settings
+    const currentCfg = storage.getGasConfig();
+    const ps = Boolean(currentCfg.powerSavingMode);
+    const interval = currentCfg.gpsIntervalSeconds || (ps ? 12 : 4);
+
+    backgroundTracker.startAll((pt) => {
+      if (!isPausedRef.current) {
+        handlePointArrival(pt);
+      }
+    }, ps, interval);
+
+    return () => {
+      backgroundTracker.stopAll();
+    };
+  }, []);
+
+  const toggleWakeLock = async () => {
+    if (isWakeLockActive) {
+      backgroundTracker.releaseWakeLock();
+      setIsWakeLockActive(false);
+    } else {
+      const ok = await backgroundTracker.requestWakeLock();
+      setIsWakeLockActive(ok);
+    }
+  };
+
+  const toggleBgAudio = () => {
+    if (isBgAudioActive) {
+      backgroundTracker.stopBackgroundAudio();
+      setIsBgAudioActive(false);
+    } else {
+      backgroundTracker.startBackgroundAudio();
+      setIsBgAudioActive(true);
+    }
+  };
+
+  const toggleBatterySaver = () => {
+    const nextVal = !isBatterySaver;
+    const nextSec = nextVal ? (gpsIntervalSec || 12) : 4;
+    setIsBatterySaver(nextVal);
+    storage.setPowerSavingMode(nextVal, nextSec);
+    backgroundTracker.setPowerSavingMode(nextVal, nextSec);
+  };
 
   // Timer calculation from activeTrip.startTs accounting for pause
   useEffect(() => {
@@ -67,7 +160,7 @@ export const ActiveTripTracker: React.FC<ActiveTripTrackerProps> = ({
     return () => clearInterval(interval);
   }, [activeTrip.startTs]);
 
-  // Real GPS Tracking with navigator.geolocation.watchPosition (Stable registration)
+  // Real GPS Tracking with navigator.geolocation.watchPosition (Adapted for Power Saving Mode)
   useEffect(() => {
     if (!navigator.geolocation) return;
 
@@ -81,6 +174,15 @@ export const ActiveTripTracker: React.FC<ActiveTripTrackerProps> = ({
         const { latitude, longitude, speed, heading, accuracy, altitude } = pos.coords;
         const spKmh = speed ? Math.round(speed * 3.6) : 0;
         setCurrentSpeed(spKmh);
+
+        const now = Date.now();
+        // In power saving mode, throttle point creation by the selected interval
+        const minGapMs = isBatterySaver ? (Math.max(6, gpsIntervalSec - 1) * 1000) : 2500;
+        if (isBatterySaver && pointsRef.current.length > 0 && (now - lastRecordedGpsTsRef.current < minGapMs)) {
+          // Keep speedometer live on screen without churning point store or redraws
+          return;
+        }
+        lastRecordedGpsTsRef.current = now;
 
         const currentPts = pointsRef.current;
         const newPoint: GpsPoint = {
@@ -96,22 +198,22 @@ export const ActiveTripTracker: React.FC<ActiveTripTrackerProps> = ({
         };
 
         if (heading) lastHeadingRef.current = heading;
-        onAddPointRef.current(newPoint);
+        handlePointArrival(newPoint);
       },
       (err) => {
         console.warn('Geolocation watch notice:', err.message);
       },
       {
-        enableHighAccuracy: true,
-        maximumAge: 4000,
-        timeout: 10000,
+        enableHighAccuracy: !isBatterySaver,
+        maximumAge: isBatterySaver ? 10000 : 4000,
+        timeout: isBatterySaver ? 15000 : 10000,
       }
     );
 
     return () => {
       navigator.geolocation.clearWatch(watchId);
     };
-  }, []);
+  }, [isBatterySaver, gpsIntervalSec]);
 
   // Simulated Driving Loop (for testing inside browser/iframe)
   useEffect(() => {
@@ -148,7 +250,7 @@ export const ActiveTripTracker: React.FC<ActiveTripTrackerProps> = ({
           syncStatus: 0,
         };
 
-        onAddPointRef.current(simulatedPoint);
+        handlePointArrival(simulatedPoint);
       }, 3000);
     } else {
       if (simIntervalRef.current) {
@@ -166,6 +268,9 @@ export const ActiveTripTracker: React.FC<ActiveTripTrackerProps> = ({
     setIsPaused(nextPaused);
     if (nextPaused) {
       setCurrentSpeed(0);
+    }
+    if (activeTrip.tripId) {
+      realtimeService.broadcastTripPause(activeTrip.tripId, nextPaused);
     }
     if (onTogglePause) {
       onTogglePause(nextPaused);
@@ -275,6 +380,134 @@ export const ActiveTripTracker: React.FC<ActiveTripTrackerProps> = ({
             <span>{isSimulating ? 'กำลังจำลอง...' : 'จำลองขับรถ'}</span>
           </button>
         </div>
+      </div>
+
+      {/* Background & Screen-Off Tracking Status Card */}
+      <div className="bg-white rounded-2xl p-3.5 sm:p-4 border border-slate-200/90 shadow-xs space-y-2.5">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-2.5">
+            <div className="w-8 h-8 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
+              <ShieldCheck className="w-4 h-4 text-emerald-600" />
+            </div>
+            <div>
+              <div className="flex items-center space-x-1.5">
+                <span className="text-xs sm:text-sm font-extrabold text-slate-900">
+                  ระบบทำงานขณะปิดหน้าจอ
+                </span>
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 animate-pulse">
+                  ● ทำงานอยู่
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-500">
+                ระบบเปิดใช้ Media Session Audio Keep-Alive และ Screen Wake Lock
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setShowBgHelp(!showBgHelp)}
+            className="p-1.5 text-slate-400 hover:text-blue-600 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+            title="ดูคำอธิบายการทำงานขณะปิดหน้าจอ"
+          >
+            <Info className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Quick Toggles Row */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1 border-t border-slate-100">
+          <button
+            type="button"
+            onClick={toggleWakeLock}
+            className={`p-2 rounded-xl text-left border text-xs font-semibold flex items-center justify-between transition-all cursor-pointer ${
+              isWakeLockActive 
+                ? 'bg-blue-50/70 border-blue-200 text-blue-800' 
+                : 'bg-slate-50 border-slate-200 text-slate-600'
+            }`}
+          >
+            <span className="flex items-center space-x-1.5">
+              <Smartphone className="w-3.5 h-3.5" />
+              <span>ป้องกันจอดับ</span>
+            </span>
+            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+              isWakeLockActive ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-600'
+            }`}>
+              {isWakeLockActive ? 'เปิด' : 'ปิด'}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={toggleBgAudio}
+            className={`p-2 rounded-xl text-left border text-xs font-semibold flex items-center justify-between transition-all cursor-pointer ${
+              isBgAudioActive 
+                ? 'bg-indigo-50/70 border-indigo-200 text-indigo-800' 
+                : 'bg-slate-50 border-slate-200 text-slate-600'
+            }`}
+          >
+            <span className="flex items-center space-x-1.5">
+              <Volume2 className="w-3.5 h-3.5" />
+              <span>ทำงานขณะปิดจอ</span>
+            </span>
+            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+              isBgAudioActive ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-600'
+            }`}>
+              {isBgAudioActive ? 'เปิด' : 'ปิด'}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={toggleBatterySaver}
+            className={`p-2 rounded-xl text-left border text-xs font-semibold flex items-center justify-between transition-all cursor-pointer ${
+              isBatterySaver 
+                ? 'bg-emerald-50/90 border-emerald-300 text-emerald-900 shadow-2xs' 
+                : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+            }`}
+            title="ลดความถี่ดึงพิกัด GPS เพื่อประหยัดแบตเตอรี่"
+          >
+            <span className="flex items-center space-x-1.5">
+              {isBatterySaver ? <BatteryCharging className="w-3.5 h-3.5 text-emerald-600" /> : <Battery className="w-3.5 h-3.5" />}
+              <span>ประหยัดพลังงาน</span>
+            </span>
+            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+              isBatterySaver ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-600'
+            }`}>
+              {isBatterySaver ? `ทุก ${gpsIntervalSec}วิ` : 'ปิด'}
+            </span>
+          </button>
+        </div>
+
+        {/* Battery Saver Active Notification */}
+        {isBatterySaver && (
+          <div className="flex items-center justify-between px-3 py-2 bg-emerald-50/80 border border-emerald-200 rounded-xl text-xs text-emerald-900">
+            <div className="flex items-center space-x-2">
+              <Leaf className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>
+                <strong>โหมดประหยัดพลังงาน:</strong> ลดความถี่ GPS เป็นทุก {gpsIntervalSec} วินาที ยืดอายุแบตเตอรี่ขณะเปิดหน้าจอ
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={toggleBatterySaver}
+              className="ml-2 text-[10px] font-bold px-2 py-0.5 rounded-lg bg-white border border-emerald-300 text-emerald-800 hover:bg-emerald-100/60 shrink-0 cursor-pointer"
+            >
+              สลับเป็นโหมดปกติ
+            </button>
+          </div>
+        )}
+
+        {showBgHelp && (
+          <div className="bg-slate-50 rounded-xl p-3 text-[11px] text-slate-600 border border-slate-200 space-y-1 animate-in fade-in duration-150">
+            <p className="font-bold text-slate-800">💡 ตัวเลือกการควบคุมพลังงาน & การทำงานเบื้องหลัง:</p>
+            <ul className="list-disc list-inside space-y-0.5 text-slate-600">
+              <li><strong>โหมดประหยัดพลังงาน (Battery Saver):</strong> ลดความถี่การดึง GPS ลงเหลือทุก 12-20 วินาที ช่วยประหยัดแบตเตอรี่ลงมากกว่า 50% เหมาะกับการเปิดหน้าจอทิ้งไว้</li>
+              <li><strong>Media Session Keep-Alive:</strong> รันเสียงเงียบวนซ้ำในโหมด Media Session ทำให้ iOS Safari และ Android Chrome ไม่แช่แข็ง (Freeze) แท็บเมื่อล็อกหน้าจอ</li>
+              <li><strong>Screen Wake Lock:</strong> ป้องกันหน้าจอมือถือดับเองอัตโนมัติขณะวางบนแท่นวางโทรศัพท์</li>
+              <li><strong>Periodic Fallback GPS:</strong> ดึงพิกัดซ้ำเป็นระยะเพื่อป้องกันระบบเบราว์เซอร์ชะลอการส่งพิกัด</li>
+            </ul>
+          </div>
+        )}
       </div>
 
       {/* Main HUD Gauge Card */}

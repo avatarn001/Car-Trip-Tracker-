@@ -21,6 +21,14 @@ import {
   ChevronRight,
   ShieldAlert,
   Sparkles,
+  Battery,
+  BatteryCharging,
+  Zap,
+  Gauge,
+  Leaf,
+  Smartphone,
+  Sliders,
+  Info,
 } from 'lucide-react';
 import { GAS_CODE_GS } from '../services/gasCode';
 
@@ -45,9 +53,11 @@ export const GasSettingsModal: React.FC<GasSettingsModalProps> = ({
   const [spreadsheetUrl, setSpreadsheetUrl] = useState(config.spreadsheetUrl || '');
   const [apiKey, setApiKey] = useState(config.apiKey || '');
   const [enabled, setEnabled] = useState(config.enabled);
+  const [powerSavingMode, setPowerSavingMode] = useState<boolean>(Boolean(config.powerSavingMode));
+  const [gpsIntervalSeconds, setGpsIntervalSeconds] = useState<number>(config.gpsIntervalSeconds || 12);
   const [isTesting, setIsTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
-  const [activeSubTab, setActiveSubTab] = useState<'settings' | 'guide' | 'queue'>('settings');
+  const [activeSubTab, setActiveSubTab] = useState<'battery' | 'settings' | 'guide' | 'queue'>('battery');
   const [isCodeCopied, setIsCodeCopied] = useState(false);
   const [showCodePreview, setShowCodePreview] = useState(false);
   const [activeFaq, setActiveFaq] = useState<string | null>('permission');
@@ -107,8 +117,11 @@ export const GasSettingsModal: React.FC<GasSettingsModalProps> = ({
       spreadsheetUrl: spreadsheetUrl.trim(),
       apiKey: apiKey.trim(),
       enabled,
+      powerSavingMode,
+      gpsIntervalSeconds,
     };
     onSaveConfig(updated);
+    storage.saveGasConfig(updated);
     onClose();
   };
 
@@ -126,11 +139,11 @@ export const GasSettingsModal: React.FC<GasSettingsModalProps> = ({
         <div className="flex items-center justify-between p-4 border-b border-slate-100 bg-slate-50">
           <div className="flex items-center space-x-2.5">
             <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center shadow-xs">
-              <Cloud className="w-4 h-4" />
+              <Sliders className="w-4 h-4" />
             </div>
             <div>
-              <h3 className="text-sm font-bold text-slate-900">ตั้งค่า Google Apps Script</h3>
-              <p className="text-[11px] text-slate-500">ซิงก์ข้อมูลอัตโนมัติกับ Google Sheets</p>
+              <h3 className="text-sm font-bold text-slate-900">ตั้งค่าระบบ (Settings)</h3>
+              <p className="text-[11px] text-slate-500">โหมดประหยัดพลังงาน & การเชื่อมต่อ Google Sheets</p>
             </div>
           </div>
           <button
@@ -142,22 +155,39 @@ export const GasSettingsModal: React.FC<GasSettingsModalProps> = ({
         </div>
 
         {/* Sub Navigation Tabs */}
-        <div className="flex border-b border-slate-200 bg-slate-50 px-4">
+        <div className="flex border-b border-slate-200 bg-slate-50 px-4 overflow-x-auto">
           <button
-            onClick={() => setActiveSubTab('settings')}
-            className={`py-2 px-3 text-xs font-semibold border-b-2 transition-all ${
-              activeSubTab === 'settings'
-                ? 'border-blue-600 text-blue-600'
+            onClick={() => setActiveSubTab('battery')}
+            className={`py-2 px-3 text-xs font-semibold border-b-2 transition-all flex items-center space-x-1.5 shrink-0 ${
+              activeSubTab === 'battery'
+                ? 'border-emerald-600 text-emerald-700 font-bold'
                 : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
-            การเชื่อมต่อ (Connection)
+            <BatteryCharging className="w-3.5 h-3.5 text-emerald-600" />
+            <span>โหมดประหยัดพลังงาน</span>
+            {powerSavingMode && (
+              <span className="bg-emerald-500 text-white text-[9px] px-1.5 py-0.2 rounded-full font-bold">
+                เปิดอยู่
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => setActiveSubTab('settings')}
+            className={`py-2 px-3 text-xs font-semibold border-b-2 transition-all flex items-center space-x-1.5 shrink-0 ${
+              activeSubTab === 'settings'
+                ? 'border-blue-600 text-blue-600 font-bold'
+                : 'border-transparent text-slate-500 hover:text-slate-800'
+            }`}
+          >
+            <Cloud className="w-3.5 h-3.5 text-blue-600" />
+            <span>Google Sheets (GAS)</span>
           </button>
           <button
             onClick={() => setActiveSubTab('guide')}
-            className={`py-2 px-3 text-xs font-semibold border-b-2 transition-all flex items-center space-x-1.5 ${
+            className={`py-2 px-3 text-xs font-semibold border-b-2 transition-all flex items-center space-x-1.5 shrink-0 ${
               activeSubTab === 'guide'
-                ? 'border-blue-600 text-blue-600'
+                ? 'border-blue-600 text-blue-600 font-bold'
                 : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
@@ -168,9 +198,9 @@ export const GasSettingsModal: React.FC<GasSettingsModalProps> = ({
           </button>
           <button
             onClick={() => setActiveSubTab('queue')}
-            className={`py-2 px-3 text-xs font-semibold border-b-2 transition-all flex items-center space-x-1 ${
+            className={`py-2 px-3 text-xs font-semibold border-b-2 transition-all flex items-center space-x-1 shrink-0 ${
               activeSubTab === 'queue'
-                ? 'border-blue-600 text-blue-600'
+                ? 'border-blue-600 text-blue-600 font-bold'
                 : 'border-transparent text-slate-500 hover:text-slate-800'
             }`}
           >
@@ -185,6 +215,182 @@ export const GasSettingsModal: React.FC<GasSettingsModalProps> = ({
 
         {/* Modal Body */}
         <div className="p-5 overflow-y-auto space-y-4">
+          {/* Battery Saver Mode Tab */}
+          {activeSubTab === 'battery' && (
+            <div className="space-y-4">
+              {/* Main Battery Saver Toggle Card */}
+              <div className={`p-4 rounded-2xl border transition-all ${
+                powerSavingMode
+                  ? 'bg-gradient-to-br from-emerald-50 to-teal-50/60 border-emerald-300 shadow-xs'
+                  : 'bg-slate-50 border-slate-200'
+              }`}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start space-x-3">
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                      powerSavingMode ? 'bg-emerald-600 text-white shadow-xs' : 'bg-slate-200 text-slate-600'
+                    }`}>
+                      {powerSavingMode ? <BatteryCharging className="w-5 h-5" /> : <Battery className="w-5 h-5" />}
+                    </div>
+                    <div>
+                      <div className="flex items-center space-x-2">
+                        <span className="text-sm font-extrabold text-slate-900">
+                          โหมดประหยัดพลังงาน (Battery Saver Mode)
+                        </span>
+                        {powerSavingMode && (
+                          <span className="bg-emerald-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center space-x-1">
+                            <Leaf className="w-2.5 h-2.5" />
+                            <span>เปิดใช้งาน</span>
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                        ลดความถี่ในการดึงพิกัด GPS เพื่อยืดอายุการใช้งานแบตเตอรี่ขณะเปิดหน้าจอทิ้งไว้ระหว่างขับขี่
+                      </p>
+                    </div>
+                  </div>
+
+                  <label className="relative inline-flex items-center cursor-pointer shrink-0 mt-1">
+                    <input
+                      type="checkbox"
+                      checked={powerSavingMode}
+                      onChange={(e) => setPowerSavingMode(e.target.checked)}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-600"></div>
+                  </label>
+                </div>
+
+                {/* Status Callout */}
+                <div className="mt-3 pt-3 border-t border-slate-200/80 flex items-center justify-between text-xs">
+                  <span className="text-slate-600">สถานะปัจจุบัน:</span>
+                  <span className={`font-bold ${powerSavingMode ? 'text-emerald-700' : 'text-slate-700'}`}>
+                    {powerSavingMode
+                      ? `🍃 กำลังประหยัดพลังงาน (ดึงพิกัดทุก ${gpsIntervalSeconds} วินาที)`
+                      : '⚡ โหมดความละเอียดสูงปกติ (ดึงพิกัดทุก 4 วินาที)'}
+                  </span>
+                </div>
+              </div>
+
+              {/* GPS Frequency Selector */}
+              <div className="space-y-2.5">
+                <label className="block text-xs font-bold text-slate-800 flex items-center space-x-1.5">
+                  <Gauge className="w-4 h-4 text-blue-600" />
+                  <span>ความถี่ในการดึงพิกัด GPS (GPS Polling Interval)</span>
+                </label>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  {/* Option 1: High Accuracy Normal (4s) */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setGpsIntervalSeconds(4);
+                      setPowerSavingMode(false);
+                    }}
+                    className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                      !powerSavingMode && gpsIntervalSeconds === 4
+                        ? 'border-blue-500 bg-blue-50/80 ring-2 ring-blue-500/20 shadow-xs'
+                        : 'border-slate-200 bg-white hover:bg-slate-50'
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-slate-900 flex items-center space-x-1">
+                          <Zap className="w-3.5 h-3.5 text-amber-500" />
+                          <span>โหมดปกติ</span>
+                        </span>
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-100 text-blue-800">
+                          ทุก 4 วิ
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-1">
+                        ความละเอียดสูงสุด เส้นทางละเอียดทุกโค้ง เหมาะเมื่อมีสายชาร์จ
+                      </p>
+                    </div>
+                  </button>
+
+                  {/* Option 2: Recommended Power Saver (12s) */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setGpsIntervalSeconds(12);
+                      setPowerSavingMode(true);
+                    }}
+                    className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between relative ${
+                      powerSavingMode && gpsIntervalSeconds === 12
+                        ? 'border-emerald-500 bg-emerald-50/90 ring-2 ring-emerald-500/20 shadow-xs'
+                        : 'border-slate-200 bg-white hover:bg-slate-50'
+                    }`}
+                  >
+                    <div className="absolute -top-2 right-2 bg-emerald-600 text-white text-[9px] font-bold px-1.5 py-0.2 rounded-full shadow-2xs">
+                      แนะนำ
+                    </div>
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-emerald-950 flex items-center space-x-1">
+                          <Leaf className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>ประหยัดพลังงาน</span>
+                        </span>
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-200 text-emerald-900">
+                          ทุก 12 วิ
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-1">
+                        ยืดอายุแบตเตอรี่ได้ 2-3 เท่า บันทึกเส้นทางแม่นยำครบถ้วน
+                      </p>
+                    </div>
+                  </button>
+
+                  {/* Option 3: Ultra Saver (20s) */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setGpsIntervalSeconds(20);
+                      setPowerSavingMode(true);
+                    }}
+                    className={`p-3 rounded-xl border text-left transition-all cursor-pointer flex flex-col justify-between ${
+                      powerSavingMode && gpsIntervalSeconds === 20
+                        ? 'border-teal-500 bg-teal-50/90 ring-2 ring-teal-500/20 shadow-xs'
+                        : 'border-slate-200 bg-white hover:bg-slate-50'
+                    }`}
+                  >
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-teal-950 flex items-center space-x-1">
+                          <Battery className="w-3.5 h-3.5 text-teal-600" />
+                          <span>ประหยัดขั้นสูง</span>
+                        </span>
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-teal-200 text-teal-900">
+                          ทุก 20 วิ
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-1">
+                        ประหยัดแบตเตอรี่สูงสุด เหมาะกับเดินทางไกลหรือแบตเตอรี่ต่ำ
+                      </p>
+                    </div>
+                  </button>
+                </div>
+              </div>
+
+              {/* Power Saving Advice & Benefits */}
+              <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-2 text-slate-700">
+                <div className="font-bold flex items-center space-x-1.5 text-slate-900">
+                  <Info className="w-4 h-4 text-blue-600" />
+                  <span>การทำงานและประโยชน์ของโหมดประหยัดพลังงาน:</span>
+                </div>
+                <ul className="space-y-1.5 text-[11px] text-slate-600 pl-5 list-disc">
+                  <li>
+                    <strong>ลดการตื่นของชิปเซ็ต GPS:</strong> การเว้นช่วงดึงพิกัดช่วยลดอุณหภูมิความร้อนของโทรศัพท์และลดการใช้พลังงานของฮาร์ดแวร์ GNSS
+                  </li>
+                  <li>
+                    <strong>ลดการคำนวณและประมวลผลหน้าจอ:</strong> หน้าจอแผนที่ไม่ต้องวาดเส้นทางซ้ำซ้อนทุกวินาที ช่วยให้แบตเตอรี่หมดช้าลงอย่างเห็นได้ชัด
+                  </li>
+                  <li>
+                    <strong>ระบบทำงานขณะปิดหน้าจอ:</strong> แม้จะปิดจอโทรศัพท์ ระบบยังมี Silent Audio Keep-Alive บันทึกพิกัดต่อเนื่องตามช่วงเวลาที่กำหนด
+                  </li>
+                </ul>
+              </div>
+            </div>
+          )}
           {activeSubTab === 'settings' && (
             <div className="space-y-4">
               {/* Enable Toggle */}

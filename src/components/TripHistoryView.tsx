@@ -24,11 +24,8 @@ import {
   Plus,
   Car,
   Flag,
-  Sparkles,
-  RotateCcw,
   Loader2,
 } from 'lucide-react';
-import { storage } from '../services/storage';
 
 interface TripHistoryViewProps {
   trips: Trip[];
@@ -58,8 +55,6 @@ export const TripHistoryView: React.FC<TripHistoryViewProps> = ({
   // Modals
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [editingTrip, setEditingTrip] = useState<Trip | null | undefined>(undefined); // undefined=closed, null=create, Trip=edit
-
-  const isDemo = useMemo(() => storage.isDemoMode(), [trips]);
 
   const handleViewTripDetail = async (trip: Trip) => {
     // If trip has start/end coords but needs road routing geometry instead of straight line
@@ -257,44 +252,16 @@ export const TripHistoryView: React.FC<TripHistoryViewProps> = ({
 
   return (
     <div id="trip-history-view" className="space-y-4">
-      {/* Top Banner: Real Mode vs Demo Mode Notice */}
-      {isDemo ? (
-        <div className="bg-gradient-to-r from-amber-500 to-amber-600 text-white p-3.5 sm:p-4 rounded-2xl shadow-sm flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-          <div className="flex items-center space-x-2.5">
-            <Sparkles className="w-5 h-5 text-amber-200 shrink-0" />
+      {/* Top Banner: Real Mode Notice */}
+      {trips.length === 0 ? (
+        <div className="bg-emerald-50 border border-emerald-200 text-emerald-900 p-3.5 rounded-2xl flex items-center justify-between gap-3 text-xs">
+          <div className="flex items-center space-x-2">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
             <div>
-              <p className="text-xs font-bold">กำลังแสดงข้อมูลตัวอย่าง (Demo Mode)</p>
-              <p className="text-[11px] text-amber-100">
-                คุณสามารถล้างข้อมูลตัวอย่างเพื่อเริ่มต้นใช้งานจริงด้วยเลขไมล์และรถของคุณเอง
-              </p>
+              <p className="font-bold">โหมดใช้งานจริง (Real Mode) - ลบข้อมูลเดโม่เรียบร้อยแล้ว</p>
+              <p className="text-emerald-700 text-[11px]">พร้อมเริ่มทริปใหม่ผ่าน GPS หรือกดปุ่ม "บันทึกทริปย้อนหลัง"</p>
             </div>
           </div>
-          <button
-            onClick={() => {
-              if (window.confirm('ต้องการล้างข้อมูลตัวอย่างเพื่อเริ่มใช้งานจริงหรือไม่?')) {
-                if (onClearDemoData) onClearDemoData();
-              }
-            }}
-            className="px-3.5 py-1.5 bg-white text-amber-900 hover:bg-amber-50 font-bold rounded-xl text-xs transition-all shadow-xs shrink-0 cursor-pointer"
-          >
-            เริ่มใช้งานจริง (ล้างข้อมูลตัวอย่าง)
-          </button>
-        </div>
-      ) : trips.length === 0 ? (
-        <div className="bg-blue-50 border border-blue-200 text-blue-900 p-3.5 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs">
-          <div>
-            <p className="font-bold">โหมดใช้งานจริง (Real Mode)</p>
-            <p className="text-blue-700 text-[11px]">พร้อมบันทึกการเดินทางจริงผ่าน GPS หรือกดปุ่ม "บันทึกทริปย้อนหลัง"</p>
-          </div>
-          <button
-            onClick={() => {
-              if (onLoadSampleData) onLoadSampleData();
-            }}
-            className="px-3 py-1.5 bg-white border border-blue-300 text-blue-800 hover:bg-blue-100 font-bold rounded-xl text-xs flex items-center space-x-1 cursor-pointer"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-            <span>โหลดข้อมูลตัวอย่างสำหรับทดสอบ</span>
-          </button>
         </div>
       ) : null}
 

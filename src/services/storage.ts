@@ -11,45 +11,59 @@ const STORAGE_KEYS = {
   INITIALIZED_REAL: 'CTT_INITIALIZED_REAL_V5',
 };
 
-// Seed sample data for high visual appeal and immediate testability
-const SAMPLE_DRIVERS = ['นายมูฮัมหมัด เจะมะ'];
+// Real drivers only - demo drivers removed
+const DEFAULT_DRIVERS = ['นายมูฮัมหมัด เจะมะ'];
 
-const SAMPLE_VEHICLES: Vehicle[] = [];
+export const DEFAULT_VEHICLES: Vehicle[] = [];
 
 const SAMPLE_TRIPS: Trip[] = [];
+
+// Auto-purge any demo data immediately from localStorage on startup
+try {
+  const tripsRaw = localStorage.getItem(STORAGE_KEYS.TRIPS);
+  if (tripsRaw) {
+    const parsed: Trip[] = JSON.parse(tripsRaw);
+    const cleaned = parsed.filter(
+      (t) =>
+        !t.tripId?.includes('TRIP-20260912') &&
+        !t.tripId?.includes('DEMO') &&
+        !t.tripId?.includes('SAMPLE') &&
+        !t.driver?.includes('สมชาย')
+    );
+    localStorage.setItem(STORAGE_KEYS.TRIPS, JSON.stringify(cleaned));
+  }
+  const driversRaw = localStorage.getItem(STORAGE_KEYS.DRIVERS);
+  if (driversRaw) {
+    const dParsed: string[] = JSON.parse(driversRaw);
+    const dCleaned = dParsed.filter((d) => !d.includes('สมชาย'));
+    localStorage.setItem(STORAGE_KEYS.DRIVERS, JSON.stringify(dCleaned.length > 0 ? dCleaned : DEFAULT_DRIVERS));
+  }
+  localStorage.setItem(STORAGE_KEYS.INITIALIZED_REAL, 'true');
+} catch {}
 
 export const storage = {
   getTrips(): Trip[] {
     try {
-      const cleaned = localStorage.getItem('CTT_CLEANED_DATA_V9');
-      if (!cleaned) {
-        localStorage.removeItem(STORAGE_KEYS.TRIPS);
-        localStorage.setItem(STORAGE_KEYS.VEHICLES, JSON.stringify([]));
-        localStorage.setItem(STORAGE_KEYS.DRIVERS, JSON.stringify(SAMPLE_DRIVERS));
-        localStorage.setItem('CTT_CLEANED_DATA_V9', 'true');
-      }
-
-      // Ensure vehicles are empty if any legacy sample vehicles are present
-      try {
-        const vData = localStorage.getItem(STORAGE_KEYS.VEHICLES);
-        if (vData) {
-          const parsed = JSON.parse(vData);
-          if (Array.isArray(parsed) && parsed.some(v => v.licensePlate?.includes('4กข') || v.id === 'v1')) {
-            localStorage.setItem(STORAGE_KEYS.VEHICLES, JSON.stringify([]));
-          }
-        }
-      } catch (e) {
-        // ignore
-      }
-
       const data = localStorage.getItem(STORAGE_KEYS.TRIPS);
       if (!data) {
-        localStorage.setItem(STORAGE_KEYS.TRIPS, JSON.stringify(SAMPLE_TRIPS));
-        return SAMPLE_TRIPS;
+        localStorage.setItem(STORAGE_KEYS.TRIPS, JSON.stringify([]));
+        return [];
       }
-      return JSON.parse(data) || [];
+      const trips: Trip[] = JSON.parse(data) || [];
+      const cleanTrips = trips.filter(
+        (t) =>
+          !t.tripId?.includes('TRIP-20260912') &&
+          !t.tripId?.includes('DEMO') &&
+          !t.tripId?.includes('SAMPLE') &&
+          !t.driver?.includes('สมชาย')
+      );
+      if (cleanTrips.length !== trips.length) {
+        localStorage.setItem(STORAGE_KEYS.TRIPS, JSON.stringify(cleanTrips));
+        this.pushToServer();
+      }
+      return cleanTrips;
     } catch {
-      return SAMPLE_TRIPS;
+      return [];
     }
   },
 
@@ -133,12 +147,14 @@ export const storage = {
     try {
       const data = localStorage.getItem(STORAGE_KEYS.DRIVERS);
       if (!data) {
-        localStorage.setItem(STORAGE_KEYS.DRIVERS, JSON.stringify(SAMPLE_DRIVERS));
-        return SAMPLE_DRIVERS;
+        localStorage.setItem(STORAGE_KEYS.DRIVERS, JSON.stringify(DEFAULT_DRIVERS));
+        return DEFAULT_DRIVERS;
       }
-      return JSON.parse(data) || SAMPLE_DRIVERS;
+      const parsed: string[] = JSON.parse(data) || DEFAULT_DRIVERS;
+      const clean = parsed.filter((d) => !d.includes('สมชาย'));
+      return clean.length > 0 ? clean : DEFAULT_DRIVERS;
     } catch {
-      return SAMPLE_DRIVERS;
+      return DEFAULT_DRIVERS;
     }
   },
 
@@ -160,6 +176,8 @@ export const storage = {
       autoSync: true,
       isConnected: true,
       version: 'V5.3.9-Cloud',
+      powerSavingMode: false,
+      gpsIntervalSeconds: 4,
     };
     try {
       const data = localStorage.getItem(STORAGE_KEYS.CONFIG);
@@ -174,14 +192,35 @@ export const storage = {
         enabled: parsed.enabled !== undefined ? parsed.enabled : true,
         scriptUrl: parsed.scriptUrl || '/api/gas',
         isConnected: true,
+        powerSavingMode: Boolean(parsed.powerSavingMode),
+        gpsIntervalSeconds: parsed.gpsIntervalSeconds || (parsed.powerSavingMode ? 12 : 4),
       };
     } catch {
       return defaultConfig;
     }
   },
 
+  isPowerSavingMode(): boolean {
+    return Boolean(this.getGasConfig().powerSavingMode);
+  },
+
+  setPowerSavingMode(enabled: boolean, intervalSeconds: number = 12): void {
+    const cfg = this.getGasConfig();
+    const updated: GasConfig = {
+      ...cfg,
+      powerSavingMode: enabled,
+      gpsIntervalSeconds: enabled ? (intervalSeconds || 12) : 4,
+    };
+    this.saveGasConfig(updated);
+  },
+
   saveGasConfig(config: GasConfig): void {
     localStorage.setItem(STORAGE_KEYS.CONFIG, JSON.stringify(config));
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('gas-config-changed', { detail: config })
+      );
+    }
     this.pushToServer();
   },
 
@@ -304,12 +343,20 @@ export const storage = {
 
   getVehicles(): Vehicle[] {
     try {
-      const data = localStorage.getItem(STORAGE_KEYS.VEHICLES);
-      if (!data) {
+      // Clear sample vehicles when updated as requested
+      const hasCleaned = localStorage.getItem('CTT_VEHICLES_CLEARED_V2');
+      if (!hasCleaned) {
         localStorage.setItem(STORAGE_KEYS.VEHICLES, JSON.stringify([]));
+        localStorage.setItem('CTT_VEHICLES_CLEARED_V2', 'true');
         return [];
       }
-      return JSON.parse(data) || [];
+
+      const data = localStorage.getItem(STORAGE_KEYS.VEHICLES);
+      if (!data) {
+        return [];
+      }
+      const parsed = JSON.parse(data);
+      return Array.isArray(parsed) ? parsed : [];
     } catch {
       return [];
     }
@@ -330,6 +377,12 @@ export const storage = {
     this.saveVehicles(list);
   },
 
+  deleteVehicle(plateOrId: string): void {
+    const list = this.getVehicles();
+    const filtered = list.filter(v => v.licensePlate !== plateOrId && v.id !== plateOrId);
+    this.saveVehicles(filtered);
+  },
+
   updateVehicleOdometer(licensePlate: string, newOdo: number): void {
     const list = this.getVehicles();
     const v = list.find(item => item.licensePlate === licensePlate);
@@ -340,20 +393,26 @@ export const storage = {
   },
 
   isDemoMode(): boolean {
-    const trips = this.getTrips();
-    return trips.some(t => t.tripId.includes('TRIP-20260912'));
+    return false;
   },
 
   clearDemoTrips(): void {
-    localStorage.setItem(STORAGE_KEYS.TRIPS, JSON.stringify([]));
+    const cleanTrips = this.getTrips().filter(
+      (t) =>
+        !t.tripId?.includes('TRIP-20260912') &&
+        !t.tripId?.includes('DEMO') &&
+        !t.tripId?.includes('SAMPLE') &&
+        !t.driver?.includes('สมชาย')
+    );
+    localStorage.setItem(STORAGE_KEYS.TRIPS, JSON.stringify(cleanTrips));
     localStorage.setItem(STORAGE_KEYS.INITIALIZED_REAL, 'true');
+    this.pushToServer();
+    fetch('/api/clear-demo', { method: 'POST' }).catch(() => {});
   },
 
   loadSampleData(): void {
-    localStorage.setItem(STORAGE_KEYS.TRIPS, JSON.stringify(SAMPLE_TRIPS));
-    localStorage.setItem(STORAGE_KEYS.DRIVERS, JSON.stringify(SAMPLE_DRIVERS));
-    localStorage.setItem(STORAGE_KEYS.VEHICLES, JSON.stringify(SAMPLE_VEHICLES));
-    localStorage.removeItem(STORAGE_KEYS.INITIALIZED_REAL);
+    // Demo loading disabled by user request
+    this.clearDemoTrips();
   },
 
   getLastOdometer(licensePlate?: string): number {

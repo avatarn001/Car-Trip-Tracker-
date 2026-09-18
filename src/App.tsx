@@ -3,6 +3,7 @@ import { Trip, ActiveTripState, GpsPoint, GasConfig, SyncQueueItem, ReceiptItem,
 import { storage } from './services/storage';
 import { gasService } from './services/gasService';
 import { calculateTrackDistanceKm, reverseGeocode, fetchOsrmRoadDistance } from './services/geoService';
+import { backgroundTracker } from './services/backgroundTracker';
 import { Navbar } from './components/Navbar';
 import { StartTripCard } from './components/StartTripCard';
 import { ActiveTripTracker } from './components/ActiveTripTracker';
@@ -11,11 +12,21 @@ import { TripHistoryView } from './components/TripHistoryView';
 import { SummaryDashboard } from './components/SummaryDashboard';
 import { GasSettingsModal } from './components/GasSettingsModal';
 import { GoogleLoginModal } from './components/GoogleLoginModal';
-import { Car, BarChart3, Clock, CheckCircle2, AlertTriangle, AlertCircle, X } from 'lucide-react';
+import { AdminLiveFleetView } from './components/AdminLiveFleetView';
+import { realtimeService } from './services/realtimeService';
+import { Car, BarChart3, Clock, CheckCircle2, AlertTriangle, AlertCircle, X, Radio } from 'lucide-react';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'trip' | 'summary' | 'history'>('trip');
+  const [activeTab, setActiveTab] = useState<'trip' | 'summary' | 'history' | 'live'>('trip');
   const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine);
+  const [liveFleetCount, setLiveFleetCount] = useState<number>(realtimeService.getFleet().length);
+
+  useEffect(() => {
+    const unsubFleet = realtimeService.onFleetUpdate((fleet) => setLiveFleetCount(fleet.length));
+    return () => {
+      unsubFleet();
+    };
+  }, []);
 
   // Authentication state (Google Login)
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => {
@@ -69,6 +80,8 @@ export default function App() {
   // Initialize data on mount
   useEffect(() => {
     async function initCloudSync() {
+      // Purge any lingering demo trips or sample data
+      storage.clearDemoTrips();
       await storage.syncWithServer();
       setTrips(storage.getTrips());
       setVehicles(storage.getVehicles());
@@ -182,6 +195,13 @@ export default function App() {
     storage.saveTrackPoints(initialPoints);
     setActiveTrip(newActiveState);
     setPoints(initialPoints);
+
+    // Broadcast trip start to connected admins via WebSocket
+    realtimeService.broadcastTripStart(newActiveState);
+
+    // Activate background execution & wake lock on user tap gesture
+    backgroundTracker.startBackgroundAudio();
+    backgroundTracker.requestWakeLock();
 
     showToast('เริ่มการเดินทางเรียบร้อยแล้ว!', 'ok');
 
@@ -349,6 +369,12 @@ export default function App() {
     setPoints([]);
     setIsEndModalOpen(false);
 
+    // Stop background tracking services
+    backgroundTracker.stopAll();
+
+    // Broadcast trip end to connected admins via WebSocket
+    realtimeService.broadcastTripEnd(completedTrip.tripId);
+
     showToast(`ปิดทริปสำเร็จ! ระยะทาง ${matchedKm.toFixed(1)} กม.`, 'ok');
 
     // Attempt backend end
@@ -470,7 +496,12 @@ export default function App() {
               />
             ) : (
               <div className="max-w-xl mx-auto">
-                <StartTripCard onStartTrip={handleStartTrip} isLoading={isSyncing} />
+                <StartTripCard 
+                  onStartTrip={handleStartTrip} 
+                  isLoading={isSyncing}
+                  onTabChange={setActiveTab}
+                  onOpenSettings={handleOpenSettings}
+                />
               </div>
             )}
           </div>
@@ -496,6 +527,11 @@ export default function App() {
             onLoadSampleData={handleLoadSampleData}
             vehicles={vehicles}
           />
+        )}
+
+        {/* TAB 4: ADMIN LIVE REAL-TIME MONITOR */}
+        {activeTab === 'live' && (
+          <AdminLiveFleetView />
         )}
       </main>
 
@@ -551,37 +587,66 @@ export default function App() {
         </div>
       )}
 
-      {/* Mobile Bottom Navigation Bar */}
-      <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 flex md:hidden">
-        <button
-          onClick={() => setActiveTab('trip')}
-          className={`flex-1 py-3 text-center flex flex-col items-center justify-center transition-colors ${
-            activeTab === 'trip' ? 'text-blue-600 font-bold' : 'text-slate-400 hover:text-slate-600'
-          }`}
-        >
-          <Car className="w-5 h-5 mb-1" />
-          <span className="text-[11px]">บันทึกทริป</span>
-        </button>
+      {/* Bottom Navigation Bar */}
+      <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200/90 shadow-[0_-4px_16px_rgba(0,0,0,0.05)]">
+        <div className="max-w-md sm:max-w-xl mx-auto flex items-center justify-around">
+          <button
+            onClick={() => setActiveTab('trip')}
+            className={`flex-1 pt-3 pb-2 text-center flex flex-col items-center justify-center transition-all cursor-pointer ${
+              activeTab === 'trip' ? 'text-blue-600 font-bold' : 'text-slate-400 hover:text-slate-600 font-medium'
+            }`}
+          >
+            <Car className={`w-5 h-5 mb-1 ${activeTab === 'trip' ? 'text-blue-600 stroke-[2.5]' : 'text-slate-400'}`} />
+            <span className="text-xs">บันทึกทริป</span>
+            <div className={`w-12 h-1 rounded-full mt-1.5 transition-all ${
+              activeTab === 'trip' ? 'bg-blue-600 opacity-100' : 'bg-transparent opacity-0'
+            }`} />
+          </button>
 
-        <button
-          onClick={() => setActiveTab('summary')}
-          className={`flex-1 py-3 text-center flex flex-col items-center justify-center transition-colors ${
-            activeTab === 'summary' ? 'text-blue-600 font-bold' : 'text-slate-400 hover:text-slate-600'
-          }`}
-        >
-          <BarChart3 className="w-5 h-5 mb-1" />
-          <span className="text-[11px]">สรุปสถิติ</span>
-        </button>
+          <button
+            onClick={() => setActiveTab('summary')}
+            className={`flex-1 pt-3 pb-2 text-center flex flex-col items-center justify-center transition-all cursor-pointer ${
+              activeTab === 'summary' ? 'text-blue-600 font-bold' : 'text-slate-400 hover:text-slate-600 font-medium'
+            }`}
+          >
+            <BarChart3 className={`w-5 h-5 mb-1 ${activeTab === 'summary' ? 'text-blue-600 stroke-[2.5]' : 'text-slate-400'}`} />
+            <span className="text-xs">สรุปสถิติ</span>
+            <div className={`w-12 h-1 rounded-full mt-1.5 transition-all ${
+              activeTab === 'summary' ? 'bg-blue-600 opacity-100' : 'bg-transparent opacity-0'
+            }`} />
+          </button>
 
-        <button
-          onClick={() => setActiveTab('history')}
-          className={`flex-1 py-3 text-center flex flex-col items-center justify-center transition-colors ${
-            activeTab === 'history' ? 'text-blue-600 font-bold' : 'text-slate-400 hover:text-slate-600'
-          }`}
-        >
-          <Clock className="w-5 h-5 mb-1" />
-          <span className="text-[11px]">ประวัติ</span>
-        </button>
+          <button
+            onClick={() => setActiveTab('history')}
+            className={`flex-1 pt-3 pb-2 text-center flex flex-col items-center justify-center transition-all cursor-pointer ${
+              activeTab === 'history' ? 'text-blue-600 font-bold' : 'text-slate-400 hover:text-slate-600 font-medium'
+            }`}
+          >
+            <Clock className={`w-5 h-5 mb-1 ${activeTab === 'history' ? 'text-blue-600 stroke-[2.5]' : 'text-slate-400'}`} />
+            <span className="text-xs">ประวัติ</span>
+            <div className={`w-12 h-1 rounded-full mt-1.5 transition-all ${
+              activeTab === 'history' ? 'bg-blue-600 opacity-100' : 'bg-transparent opacity-0'
+            }`} />
+          </button>
+
+          <button
+            onClick={() => setActiveTab('live')}
+            className={`flex-1 pt-3 pb-2 text-center flex flex-col items-center justify-center transition-all cursor-pointer relative ${
+              activeTab === 'live' ? 'text-blue-600 font-bold' : 'text-slate-400 hover:text-slate-600 font-medium'
+            }`}
+          >
+            <div className="relative">
+              <Radio className={`w-5 h-5 mb-1 ${activeTab === 'live' ? 'text-blue-600 stroke-[2.5]' : 'text-slate-400'}`} />
+              {liveFleetCount > 0 && (
+                <span className="absolute -top-1 -right-2 w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-white animate-pulse" />
+              )}
+            </div>
+            <span className="text-xs">มอนิเตอร์สด</span>
+            <div className={`w-12 h-1 rounded-full mt-1.5 transition-all ${
+              activeTab === 'live' ? 'bg-blue-600 opacity-100' : 'bg-transparent opacity-0'
+            }`} />
+          </button>
+        </div>
       </nav>
     </div>
   );

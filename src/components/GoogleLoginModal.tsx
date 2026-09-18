@@ -87,21 +87,21 @@ export const GoogleLoginModal: React.FC<GoogleLoginModalProps> = ({ isOpen, onLo
             </button>
 
             <button
-              onClick={() => handleQuickLogin('employee.user@gmail.com', 'สมชาย มุ่งมั่น')}
+              onClick={() => handleQuickLogin('driver.yaring@gmail.com', 'นายมูฮัมหมัด เจะมะ')}
               className="w-full flex items-center justify-between p-3.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 transition-all text-left group"
             >
               <div className="flex items-center space-x-3">
                 <div className="w-10 h-10 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center font-bold text-sm">
-                  ส
+                  ม
                 </div>
                 <div>
                   <div className="text-xs font-bold text-slate-900 flex items-center space-x-1.5">
-                    <span>สมชาย มุ่งมั่น (User)</span>
+                    <span>นายมูฮัมหมัด เจะมะ (คนขับรถ)</span>
                     <span className="bg-slate-100 text-slate-600 text-[9px] px-1.5 py-0.2 rounded">
                       ผู้ใช้งานทั่วไป
                     </span>
                   </div>
-                  <div className="text-[11px] text-slate-500">employee.user@gmail.com (ไม่เห็นเมนูตั้งค่า)</div>
+                  <div className="text-[11px] text-slate-500">driver.yaring@gmail.com (ไม่เห็นเมนูตั้งค่า)</div>
                 </div>
               </div>
               <User className="w-5 h-5 text-slate-400" />

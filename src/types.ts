@@ -36,6 +36,7 @@ export interface Vehicle {
   currentOdo: number;
   fuelType?: string;
   isDefault?: boolean;
+  imageUrl?: string;
 }
 
 export interface ReceiptItem {
@@ -138,6 +139,8 @@ export interface GasConfig {
   lastChecked?: string;
   isConnected: boolean;
   version?: string;
+  powerSavingMode?: boolean;
+  gpsIntervalSeconds?: number;
 }
 
 export interface SyncQueueItem {
@@ -154,4 +157,23 @@ export interface UserProfile {
   email: string;
   name: string;
   picture?: string;
+}
+
+export interface LiveFleetVehicle {
+  tripId: string;
+  driver: string;
+  vehicle: string;
+  licensePlate: string;
+  purpose: string;
+  startOdo: number;
+  startTs: string;
+  lastUpdated: string;
+  isPaused: boolean;
+  currentLat: number;
+  currentLng: number;
+  currentSpeed: number;
+  currentBearing: number;
+  lastAddress?: string;
+  pointsCount: number;
+  pointsTrail?: { lat: number; lng: number }[];
 }
